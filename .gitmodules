@@ -1,0 +1,3 @@
+[submodule "src/netbsd-src"]
+	path = src/netbsd-src
+	url = https://github.com/kakinoshin/NetBSD-ReadyNasDuoV1.git

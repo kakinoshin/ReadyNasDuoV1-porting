@@ -1,0 +1,18 @@
+# Third-party references, re-fetched as needed (see docs/repository.md)
+/refs/
+
+# Toolchain downloads, build trees and installed trees
+/toolchain/dl/
+/toolchain/build/
+/toolchain/build.log
+/toolchain/host/
+/toolchain/sparc-elf/
+
+# NetBSD build outputs (src/netbsd-src itself is a submodule)
+/src/netbsd-obj/
+/src/netbsd-tools/
+/src/netbsd-tools.log
+
+# Probe build outputs
+/hw/probe/probe.elf
+/hw/probe/probe.bin
