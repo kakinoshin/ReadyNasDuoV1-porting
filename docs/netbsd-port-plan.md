@@ -34,6 +34,9 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
   `VM_MAXUSER_ADDRESS`, `USRSTACK` and `MAXDSIZ` need review.
 - `flush` is emulated from the illegal instruction trap. The `ld.elf_so` PLT code, signal
   trampolines and GCC trampolines depend on it.
+- NAND access turns PCI off (`PCI_FEATURE_PCION`), and doing so under a running EHCI
+  controller killed it on RAIDiator. A NetBSD NAND driver must quiesce PCI/USB first, or
+  the port must leave NAND alone at run time.
 - KVA is just under 128 MiB at `0xf8000000-0xffff0000`. `kernel_map` goes there, with the
   same entries shared in every process PGD, as Linux does.
 
@@ -49,7 +52,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | # | Work | Done when | Hardware |
 |---|---|---|---|
 | M0 | Toolchain | Cross compilers work | No |
-| M1 | A way to run the probe | `hw/probe` output appears on serial | Yes |
+| M1 | A way to run the probe | **Done:** `padre_go.ko` starts `probe-boot.bin` on bare metal | Yes |
 | M2 | Minimal kernel | `locore`, UART console, timer, INTC; prints the copyright banner | Yes |
 | M3 | pmap | New `pmap`, `uvm` starts, `init` runs from a RAM disk | Yes |
 | M4 | Userland | `sh` runs from a RAM disk | Yes |
@@ -62,13 +65,11 @@ us storage without any custom IP analysis.
 
 ## Risks and open items
 
-1. **Boot path (the main M1 obstacle).** iboot wants encrypted images, and `rn_nops` only
-   fits iboot 1.00a030. Candidates:
-   - Inspect the Duo's iboot and apply the same patching method.
-   - Find `readynas_crypto` (by Henrik Nordström, named in the DIET README) and use its keys.
-     No download location is known yet.
-   - Start a kernel kexec-style from a Linux module on RAIDiator. With root SSH this avoids
-     touching flash and is the safest, but the module must be built with the gcc 3.3 series.
+1. **Boot path.** For development this is solved: `hw/kmod/padre_go.ko` enters an image from
+   RAIDiator without touching flash, and GCC 16 builds the module, so the gcc 3.3 series is
+   not needed. Each run needs a power cycle. This needs RAIDiator to stay on the disks, so
+   a standalone boot still depends on iboot, whose image encryption is unsolved
+   (`rn_nops` only fits iboot 1.00a030, and the Duo has 1.00a043).
 2. **Serial.** M1 onward needs a 3.3 V TTL UART connection.
 3. **No emulator.** QEMU has no padre model, which limits what can be checked without
    hardware. A minimal emulator may be worth building for M2 onward.

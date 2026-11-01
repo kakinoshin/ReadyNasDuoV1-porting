@@ -6,14 +6,17 @@
  * references. Register reads only, apart from the UART: no trap, MMU or
  * cache state is changed.
  *
+ * With -DUSERLAND it runs as a static Linux process on RAIDiator instead:
+ * only the instruction tests run, and output goes to stdout.
+ *
  * Addresses come from include/asm-padre/padre0.h in the NETGEAR GPL source.
  */
 typedef unsigned int u32;
 typedef int s32;
 
-/* ttyS0 is UART1 (arch/padre/drivers/padre_serial.c). */
-#define UART_DATA	(*(volatile u32 *)0x60000070)
-#define UART_STAT	(*(volatile u32 *)0x60000074)
+/* The rear console is ttyS1, which padre_serial.c maps to UART0. */
+#define UART_DATA	(*(volatile u32 *)0x60000060)
+#define UART_STAT	(*(volatile u32 *)0x60000064)
 #define UART_STAT_TH	0x4
 
 #define SYS_ID		(*(volatile u32 *)0x60000090)
@@ -38,11 +41,29 @@ s32 hw_sdiv(s32, s32);
 u32 hw_udiv(u32, u32);
 u32 hw_umul_after_load(u32 *, u32 *, u32 *);
 u32 hw_umul_padded(u32 *, u32 *, u32 *);
+#ifndef USERLAND
 u32 rd_psr(void), rd_tbr(void), rd_wim(void);
 u32 rd_mmu(u32), rd_icmu(u32), rd_dcmu(u32);
+#endif
 
 #define ITERATIONS	200000
 
+#ifdef USERLAND
+void sys_write(int, const char *, u32);
+
+static char outbuf[256];
+static u32 outlen;
+
+static void
+putc(int c)
+{
+	outbuf[outlen++] = c;
+	if (c == '\n' || outlen == sizeof(outbuf)) {
+		sys_write(1, outbuf, outlen);
+		outlen = 0;
+	}
+}
+#else
 static void
 putc(int c)
 {
@@ -50,6 +71,7 @@ putc(int c)
 		continue;
 	UART_DATA = c;
 }
+#endif
 
 static void
 puts(const char *s)
@@ -70,6 +92,7 @@ puthex(u32 v)
 		putc("0123456789abcdef"[(v >> i) & 0xf]);
 }
 
+#ifndef USERLAND
 static void
 kv(const char *k, u32 v)
 {
@@ -78,6 +101,8 @@ kv(const char *k, u32 v)
 	puthex(v);
 	puts("\n");
 }
+
+#endif /* !USERLAND */
 
 static u32 rng = 2463534242u;
 
@@ -158,9 +183,18 @@ report(const char *name, u32 errs, u32 a, u32 b, u32 got, u32 want)
 }
 
 static void
+kvnz(const char *k, u32 v)
+{
+	puts(k);
+	puts(": 0x");
+	puthex(v);
+	puts("\n");
+}
+
+static void
 test_sdiv(void)
 {
-	u32 errs = 0, fa = 0, fb = 0, fg = 0, fw = 0;
+	u32 errs = 0, nonneg = 0, fa = 0, fb = 0, fg = 0, fw = 0;
 	int i;
 
 	for (i = 0; i < ITERATIONS; i++) {
@@ -172,11 +206,16 @@ test_sdiv(void)
 		} while (b == 0 || (a == (s32)0x80000000 && b == -1));
 		g = hw_sdiv(a, b);
 		w = sw_sdiv(a, b);
-		if (g != w && errs++ == 0) {
-			fa = a; fb = b; fg = g; fw = w;
+		if (g != w) {
+			if (a >= 0)
+				nonneg++;
+			if (errs++ == 0) {
+				fa = a; fb = b; fg = g; fw = w;
+			}
 		}
 	}
 	report("sdiv", errs, fa, fb, fg, fw);
+	kvnz("sdiv errors with dividend >= 0", nonneg);
 }
 
 static void
@@ -220,13 +259,13 @@ test_umul(const char *name, u32 (*mul)(u32 *, u32 *, u32 *))
 	report(name, errs, fa, fb, fg, fw);
 }
 
-void
-probe_main(void)
+#ifndef USERLAND
+static void
+report_identity(void)
 {
 	volatile char *v;
 	int i;
 
-	puts("\nIT3107 probe\n");
 	kv("SYS_ID       ", SYS_ID);
 	kv("SYS_CTRL     ", SYS_CTRL);
 	kv("SYS_STRAP    ", SYS_STRAP);
@@ -248,10 +287,25 @@ probe_main(void)
 	for (v = BOOT_VERSION, i = 0; i < 64 && *v != 0; v++, i++)
 		putc(*v);
 	puts("\n");
+}
+#endif
 
+void
+probe_main(void)
+{
+	puts("\nIT3107 probe\n");
+#ifndef USERLAND
+	report_identity();
+#endif
 	test_udiv();
 	test_sdiv();
 	test_umul("umul padded    ", hw_umul_padded);
 	test_umul("umul after load", hw_umul_after_load);
 	puts("probe done\n");
+#ifdef PROBE_TRAP
+	/* Expected to end in the trap report from boot.S. */
+	puts("executing flush\n");
+	__asm__ __volatile__("flush %g0");
+	puts("flush did not trap\n");
+#endif
 }

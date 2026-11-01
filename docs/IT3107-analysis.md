@@ -9,7 +9,128 @@ used here are in `refs/gpl/extracted/`.
 Confidence labels:
 **[confirmed]** stated in source / **[inferred]** reasoned from source, not checked on
 hardware / **[unknown]** not yet determined.
-Nothing here has been checked on real hardware yet.
+Unless listed under "Observed on the target unit", nothing has been checked on hardware.
+
+## Observed on the target unit
+
+From the serial console of one ReadyNAS Duo v1 during a normal boot. This shows what the
+stock firmware reports; the instruction-level probe has not run yet.
+
+| Item | Observed |
+|---|---|
+| Firmware | RAIDiator 4.1.16 |
+| Boot loader | iboot 1.00a043, built 2008-10-01 (**not** the a030 that `rn_nops` needs) |
+| Board | `bid = 01`, `BOARDID=1`, `ECC ON` |
+| RAM | **1 GiB** (`Memory: 1010048k/1048576k`), not the stock 256 MiB |
+| Console | 9600 8N1, ttyS0 at IRQ 7, login prompt on serial |
+| NAND | Samsung 64 MiB, `0x00000000-0x00100000` and `0x00100000-0x04000000`, 0 bad blocks |
+| Ethernet PHY | ID `0x0141, 0x0c` (Marvell OUI), linked at 1000 Mbps |
+| Disks | 2 SATA on `ide1`/`ide2` at IRQ 32/33, DMA on channels 0/1, X-RAID |
+| LP | Disk status reports `LP_S`; `Padre NSP IO` scans SATA at load |
+| PCI/USB | No USB controller probe lines in the kernel log before hotplug |
+
+Sending `i` at 9600 baud right after `Loading ...` stops at the `iboot>` prompt on the Duo,
+with this help text. The commands have not been tried and their effects are unknown:
+
+```
+tftp MAC IP IPsvr file mem
+nand
+usb
+ics v12
+ICS reg val
+pci v17
+reason x
+go mem
+auto
+```
+
+### Measured instruction behaviour
+
+`hw/probe` built with `-DUSERLAND`, run as a static Linux process on RAIDiator 4.1.16.
+200,000 random operand pairs per test, identical over 3 runs with the same seed:
+
+| Test | Errors |
+|---|---|
+| `udiv` | 0 |
+| `sdiv` | **4,791**, none with a non-negative dividend |
+| `umul` with 2 `nop`s | 0 |
+| `umul` directly after a load | 0 |
+
+First failure: `0x8b317081 / 0x40` gives `0xfe2cc5c4`; the correct result is `0xfe2cc5c3`.
+
+This confirms bug 940 on real hardware. The multiply hazard did not reproduce in this
+sequence, so it stays unknown; the V7-only policy does not depend on it.
+
+### Measured registers
+
+Read in supervisor mode by `hw/kmod/padre_regs.ko` on RAIDiator 4.1.16. The module is built
+with GCC 16.2.0 and loads into the stock 2.6.17.14 kernel without trouble.
+
+| Register | Value | Reading |
+|---|---|---|
+| PSR | `004000e2` | **impl 0, ver 0**, not a LEON ID (impl 0xf, ver 3); EF and EC clear |
+| WIM | `00000008` | |
+| TBR | `80004060` | TBA `0x80004000`; last trap 0x06 |
+| `SYS_ID` | `31071000` | IT3107; `setup.c` tests bit 12 to tell it from the IT3102 |
+| `SYS_CTRL` | `00000000` | |
+| `SYS_STRAP` | `00070076` | Meaning unknown |
+| `LP_VERSION` | `00000001` | HW 0, FW 1, as in `/proc/cpuinfo` |
+| `PCI_FEATURE` | `0000302c` | `PCION` set |
+| `MMU_CONTROL` | `10000083` | IE and DE on, NF off; bits 7 and 28 unknown |
+| `MMU_CACHEABLE` | `bf000000` | Top 16 MiB of the 1 GiB of RAM non-cached |
+| `MMU_PGT` | `7f0fb001` | EN set; table at AHB `0x7f0fb000`, kernel VA `0xbf0fb000` |
+| `DCMU_CTRL` | `40332805` | EN, DC3; write-back (WT clear) |
+| `ICMU_CTRL` | `40334005` | EN, IC3 |
+
+`MMU_PGT` confirms that kernel VA = AHB address + `0x40000000` for DDR, and that the tables
+sit in the non-cached area. The DCMU and ICMU values are AHB addresses of the DC3 and IC3
+regions, as `head.S` programs them.
+
+NetBSD cannot identify this CPU from a table of Sun or LEON IDs; `impl 0, ver 0` is what
+the port has to expect.
+
+### Bare-metal run
+
+`hw/kmod/padre_go.ko` copied `hw/probe/probe-boot.bin` to `0x90000000` and entered it with
+traps off, ending Linux. The image ran from its own trap table, with C code built by
+GCC 16.2.0, window overflow and underflow traps served, and output on polled UART0. It
+stopped the network as expected, so the machine needs a power cycle afterwards.
+
+- The `sdiv` result matched the Linux run exactly, so it is not a Linux artefact.
+- **`flush` is unimplemented:** `flush %g0` took trap 0x02 (illegal instruction) at its own
+  PC, reported as `TRAP 90000020 900022a4 900022a8`.
+- `boot_param` was still readable: `mem_size 0x40000000`, `cpu_type 0`, `iboot 1.00a043`.
+- PSR read back as `004001e7` after writing PIL 15 (`0xfe0`): the PIL field returned **1**.
+  Only part of the field may be implemented. To check before relying on PIL levels. [unknown]
+- `MMU_CONTROL` read `10000103` here and `10000083` under Linux, so bits 7 and 8 change at
+  run time. `MMU_DFSR` was `00000200`, `MMU_IFSR` `00000803`, `MMU_DFADDR` `000b2908`.
+- TBR kept the old trap type in its `tt` field while the new base was in place. The value
+  `0x90000020` came from the kernel's last trap, the `flush` loop in the loader.
+
+### Console and flash access
+
+- `/etc/inittab` runs `getty -L ttyS1 9600`, and `padre_serial.c` registers the console with
+  index 1. The rear console is UART0 (`0x60000060`), confirmed by polled output from bare metal.
+- A burst of 6 command lines at 9600 baud stopped the console responding, while the system
+  stayed up on the network. Reopening the port on the PC did not help. The cause is
+  unconfirmed; `tools/serial-iboot.py` now paces its bytes.
+- **NAND and PCI exclude each other.** `padre_hwcontrol` clears `PCI_FEATURE_PCION` while
+  NAND is selected. Reading `mtdblock0` killed the EHCI controller (`HC died`) and returned
+  I/O errors. `/dev/mtd0` returned 0 bytes. No NAND read has succeeded from Linux, and
+  iboot has not been dumped.
+
+`/proc` on the running system:
+
+- `/proc/cpuinfo`: `ASIC: IT3107`, `neon version: 0`, `Softfpu`, `LP HW.FW version: 0.1`.
+- `/proc/version`: `2.6.17.14ReadyNAS`, built with `gcc version 3.3.5 (Infrant 3.3.5-1)`.
+- `/proc/interrupts`: `serial` on IRQ 8 only, `PADRE_LIST_PROCESSOR` on 44, `eth0` on 41,
+  `ide1`/`ide2` on 32/33, timer on 46, `ehci_hcd`/`uhci_hcd` sharing 27, `powsw` on 11.
+- `VmallocTotal: 131008 kB`, matching the area below.
+
+LP stands for **List Processor**.
+
+`init_mm.pgd bf0ff000` sits in the top 16 MiB of RAM, matching the non-cached page table
+scheme below. The `64 MiB` NAND size is confirmed.
 
 ## Conclusion
 
@@ -44,7 +165,7 @@ custom. LEON assets (GRLIB drivers, code assuming an SRMMU) cannot be reused.
 
 - The glibc patch changes `sparcv8` from `-mcpu=v8` to `-mcpu=v7`. [confirmed]
 - A `umul` right after a load is also padded with `nop`s. The exact hazard is not known. [unknown]
-- `hw/probe` measures both.
+- `hw/probe` confirmed the `sdiv` bug; see "Measured instruction behaviour".
 
 **Policy: never use V8 multiply/divide instructions; all code is V7.** Not generating
 `smul`/`umul`/`sdiv`/`udiv` avoids both errata. Reliability comes before performance.
@@ -84,7 +205,7 @@ using it before page tables exist. The exact MMU behaviour is unconfirmed. [infe
 |---|---|
 | `0x60000000` | INTC0 |
 | `0x60000040` | Timers |
-| `0x60000060` / `0x60000070` | UART0 / UART1 (**the console is UART1**) |
+| `0x60000060` / `0x60000070` | UART0 / UART1 (ttyS1 / ttyS0; **the rear console is ttyS1**) |
 | `0x60000080` | SYS (`+0x10` ID, `+0x14` CTRL, `+0x18` STRAP) |
 | `0x600000c0` | GPIO |
 | `0x60000100` | PCI (also NAND CE) |
