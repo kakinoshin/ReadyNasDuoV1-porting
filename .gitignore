@@ -26,3 +26,5 @@
 /hw/probe/probe-boot.elf
 /hw/probe/probe-boot.bin
 /hw/kmod/padre_go.ko
+/hw/probe/irqtest-boot.elf
+/hw/probe/irqtest-boot.bin

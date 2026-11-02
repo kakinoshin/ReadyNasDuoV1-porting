@@ -29,7 +29,20 @@ trapbase:
 	.endr
 	TRAP(window_overflow)		/* tt 0x05 */
 	TRAP(window_underflow)		/* tt 0x06 */
-	.rept	249			/* tt 0x07-0xff */
+	.rept	9			/* tt 0x07-0x0f */
+	BAD
+	.endr
+	BAD				/* tt 0x10 */
+#ifdef IRQ_TRAPS
+	.rept	15			/* tt 0x11-0x1f: interrupt levels 1-15 */
+	TRAP(irq_handler)
+	.endr
+#else
+	.rept	15
+	BAD
+	.endr
+#endif
+	.rept	224			/* tt 0x20-0xff */
 	BAD
 	.endr
 

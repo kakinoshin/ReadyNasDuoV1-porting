@@ -101,11 +101,44 @@ stopped the network as expected, so the machine needs a power cycle afterwards.
   PC, reported as `TRAP 90000020 900022a4 900022a8`.
 - `boot_param` was still readable: `mem_size 0x40000000`, `cpu_type 0`, `iboot 1.00a043`.
 - PSR read back as `004001e7` after writing PIL 15 (`0xfe0`): the PIL field returned **1**.
-  Only part of the field may be implemented. To check before relying on PIL levels. [unknown]
+  See "Measured interrupts".
 - `MMU_CONTROL` read `10000103` here and `10000083` under Linux, so bits 7 and 8 change at
   run time. `MMU_DFSR` was `00000200`, `MMU_IFSR` `00000803`, `MMU_DFADDR` `000b2908`.
 - TBR kept the old trap type in its `tt` field while the new base was in place. The value
   `0x90000020` came from the kernel's last trap, the `flush` loop in the loader.
+
+### Measured interrupts
+
+`hw/probe/irqtest.c`, run on bare metal.
+
+**PSR.PIL is a single bit.** Only bit 8 of the PSR exists: writes of 0-15 read back as
+bit 0 of the value. With timer interrupts running, PIL 1 and 15 blocked them and PIL 0, 2,
+4 and 8 did not. It is a global disable and gives no priority levels.
+
+**The timer runs at the rate Linux assumes.** Timer 1 with prescale 24 and count 499
+delivered 100 ticks in 960 UART characters (1 s at 9600 8N1), which is a 50 kHz count rate
+after the prescaler. It takes trap 0x1e.
+
+**Each INTC line has a fixed trap level.** All 48 lines were forced through `IFORCE`. Each
+fired once, with `ICAUSE` showing the expected bit:
+
+| Line | IRQ | Level | Trap |
+|---|---|---|---|
+| L0-15 | 0-15 | 1 | 0x11 |
+| L16-27 | 16-27 | 2 | 0x12 |
+| L28, L30 | 28, 30 | 3 | 0x13 |
+| L29, L31 | 29, 31 | 4 | 0x14 |
+| H0, H4 | 32, 36 | 5 | 0x15 |
+| H1, H5 | 33, 37 | 6 | 0x16 |
+| H2, H6 | 34, 38 | 7 | 0x17 |
+| H3, H7 | 35, 39 | 8 | 0x18 |
+| H8-12 | 40-44 | 9-13 | 0x19-0x1d |
+| H13, H14 | 45, 46 | 14 | 0x1e |
+| H15 | 47 | 15 | 0x1f |
+
+The disk channels (32, 33) are levels 5 and 6, Ethernet (41) level 10, LP (44) level 13.
+`ICAUSE` was read and cleared by writing the same bits back. Whether level 15 can be
+blocked by PIL was not tested.
 
 ### Console and flash access
 

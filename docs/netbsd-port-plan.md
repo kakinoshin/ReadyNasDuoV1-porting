@@ -34,6 +34,12 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
   `VM_MAXUSER_ADDRESS`, `USRSTACK` and `MAXDSIZ` need review.
 - `flush` is emulated from the illegal instruction trap. The `ld.elf_so` PLT code, signal
   trampolines and GCC trampolines depend on it.
+- **`spl` cannot use PSR.PIL.** The field is a single global-disable bit, so IPL levels must
+  be built in software from the INTC masks, for example a per-IPL `MASK_H`/`MASK_L` table.
+  `splhigh` can still use the PIL bit. Every mask write needs the bug 505 dummy write.
+  Trap levels are fixed per line and cannot be programmed, so the IPL of a line comes from
+  the table, not from the trap level. The `sparc` port's `ipl.h` and softint scheme, which
+  rely on real PIL levels and the sun4m soft interrupt register, do not carry over.
 - NAND access turns PCI off (`PCI_FEATURE_PCION`), and doing so under a running EHCI
   controller killed it on RAIDiator. A NetBSD NAND driver must quiesce PCI/USB first, or
   the port must leave NAND alone at run time.
