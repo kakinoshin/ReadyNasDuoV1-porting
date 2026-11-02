@@ -89,6 +89,19 @@ regions, as `head.S` programs them.
 NetBSD cannot identify this CPU from a table of Sun or LEON IDs; `impl 0, ver 0` is what
 the port has to expect.
 
+### Measured PCI
+
+Config cycles through `0x50000cf8/cfc` work as native big-endian reads, with `PCI_SWAP`
+at `0x00004444`. RAIDiator leaves this on the bus when it hands over:
+
+| Device | ID | Class | BAR | Command | Interrupt pin |
+|---|---|---|---|---|---|
+| 23.0 | `1106:3038` | UHCI | I/O `0x1000` (BAR4) | I/O | A |
+| 23.1 | `1106:3038` | UHCI | I/O `0x1020` (BAR4) | I/O | B |
+| 23.2 | `1106:3104` | EHCI | memory `0x10010000` (BAR0) | memory | C |
+
+Bus mastering is off on all three, so no controller is doing DMA at hand-over.
+
 ### Bare-metal run
 
 `hw/kmod/padre_go.ko` copied `hw/probe/probe-boot.bin` to `0x90000000` and entered it with
