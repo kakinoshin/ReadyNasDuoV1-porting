@@ -21,6 +21,8 @@ sed 's/^MACHINE=sparc;/MACHINE=padre;/' "$tools/bin/nbmake-sparc" > "$obj/nbmake
 (cd "$obj" && MAKEOBJDIR= sh ./nbmake-padre -j4 dependall)
 
 "$tools/bin/sparc--netbsdelf-objdump" -d "$obj/netbsd" | sh "$top/hw/probe/check-v7.sh"
+"$top/tools/mkroot.sh" "$obj/root.fs"
+"$tools/bin/sparc--netbsdelf-mdsetimage" "$obj/netbsd" "$obj/root.fs"
 "$tools/bin/sparc--netbsdelf-objcopy" -O binary "$obj/netbsd" "$obj/netbsd.bin"
 
 make -C "$top/hw/kmod" IMAGE="$obj/netbsd.bin" clean all

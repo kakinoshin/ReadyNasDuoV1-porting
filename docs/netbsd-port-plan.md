@@ -62,7 +62,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | M0 | Toolchain | Cross compilers work | No |
 | M1 | A way to run the probe | **Done:** `padre_go.ko` starts `probe-boot.bin` on bare metal | Yes |
 | M2 | Minimal kernel | **Done:** threads switch, 100 Hz timer interrupts drive `kpause`, kernel reaches the root device prompt | Yes |
-| M3 | pmap | New `pmap`, `uvm` starts, `init` runs from a RAM disk | Yes |
+| M3 | pmap | **Done:** user `pmap`, traps, system calls, `fork` and `flush` emulation run from a test `init` on a RAM disk | Yes |
 | M4 | Userland | `sh` runs from a RAM disk | Yes |
 | M5 | PCI and USB | `pcic`, `uhci`, `ehci`, boot from USB storage | Yes |
 | M6 | Ethernet | Reverse engineer `padre_gmac`, NFS root | Yes |
@@ -97,3 +97,7 @@ know `MACHINE=padre` yet.
    uncalibrated loop. Neither is accurate until a free-running counter is found.
 10. **Software `spl` is lightly tested.** So far only the timer interrupts; a device at a
     different IPL is the first real check of the mask tables.
+11. **User access checks are not measured.** Whether user mode is refused kernel addresses
+    is untested, including the direct map, which bypasses the page tables.
+12. **Slow traps.** Every trap from user mode moves all user windows through `pcb_rw`, and
+    each executable mapping invalidates the whole I-cache.
