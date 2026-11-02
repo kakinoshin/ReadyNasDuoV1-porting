@@ -28,3 +28,5 @@
 /hw/kmod/padre_go.ko
 /hw/probe/irqtest-boot.elf
 /hw/probe/irqtest-boot.bin
+/hw/probe/mmutest-boot.elf
+/hw/probe/mmutest-boot.bin

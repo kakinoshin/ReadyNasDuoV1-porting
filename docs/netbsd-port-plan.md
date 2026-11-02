@@ -84,8 +84,8 @@ know `MACHINE=padre` yet.
 2. **Serial.** M1 onward needs a 3.3 V TTL UART connection.
 3. **No emulator.** QEMU has no padre model, which limits what can be checked without
    hardware. A minimal emulator may be worth building for M2 onward.
-4. **A/D bits, the TLB walker and unexpected TLB traps.** These shape the pmap design and
-   should be measured from a kernel module or bare metal before M3.
+4. **Unexpected TLB traps.** Linux has a workaround option for them. The walker and A/D bits
+   are measured, see `IT3107-analysis.md`; these traps have not been seen yet.
 5. **LP dependence.** If SATA cannot run without LP, the firmware must be part of the port.
 6. **Loading late after boot.** `padre_go.ko` overwrites `0x90000000` without asking Linux. The
    one run 4 hours after boot left Linux wedged, and runs right after boot all worked. The

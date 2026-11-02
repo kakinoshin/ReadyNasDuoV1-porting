@@ -260,12 +260,28 @@ UART IRQs are 7 (UART1) and 8 (UART0); timers are 47-45. [confirmed]
 - Linux selects 16 KiB pages, but that is a software scheme of 4 consecutive 4 KiB PTEs;
   the hardware page is 4 KiB. [confirmed]
 - Page tables live in non-cached memory (`CONFIG_PADRE_RESERVE_DMA`). [confirmed]
-- Traps 0x3c/0x2c are MMU misses. Software only calls `do_sparc_fault`, so TLB refill
-  appears to be a hardware walker. [inferred]
-- `sta` to `ASI 0x11` writes the stored value into the TLB entry for that page; zero
-  invalidates. [confirmed: on the target, a page in the `0xf8000000` window kept faulting
-  (`DFSR 0xb01`) after zero was stored, and worked once its PTE was stored instead]
-- Whether hardware updates the A/D bits is not known. [unknown]
+- TLB misses are refilled by a hardware walker, for user addresses and the `0xf8000000`
+  window alike. [confirmed: `hw/probe/mmutest.c`]
+- Hardware sets A and D in the table. A store to a page already in the TLB as clean still
+  sets D. Clearing A or D in the table is not seen until the TLB entry goes. [confirmed]
+- `sta` to `ASI 0x11` writes the stored value **to the PTE in memory** through the current
+  tables and drops the page from both TLBs. A store of zero therefore unmaps the page,
+  which is why Linux's `flush_tlb_page` writes the PTE back afterwards. [confirmed]
+- Changing a PTE in memory alone leaves the old TLB entry in use, including for a removed
+  page or revoked write access. `PGT` with `FL` empties both TLBs. [confirmed]
+- A miss on an invalid PTE is not remembered: making the PTE valid is enough. [confirmed]
+- R, W and X apply to supervisor accesses too. A page without U is still reachable from
+  supervisor mode. User-mode access checks are not measured yet. [confirmed for supervisor]
+
+| Fault | Trap | Status |
+|---|---|---|
+| Data, invalid | `0x2c` | `DFSR 0x0901` read, `0x0b01` write |
+| Data, no permission | `0x09` | `DFSR 0x1101` read, `0x1301` write |
+| Fetch, invalid | `0x3c` | `IFSR 0x0903` |
+| Fetch, no X | `0x01` | `IFSR 0x1103` |
+
+`DFADDR` gives the data address. So `0x200` means write, `0x800` invalid and `0x1000`
+permission.
 
 PTE bits: `U=9 R=8 W=7 X=6 C=5 T=4 A=3 D=2 Z=1 V=0`, PPN in `0xfffff000`. [confirmed]
 

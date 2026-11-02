@@ -15,6 +15,8 @@
 
 #define TRAP(h)		sethi %hi(h), %l0; jmp %l0 + %lo(h); nop; nop
 #define BAD		TRAP(bad_trap)
+/* %l0 keeps the PSR, so that the handler can restore the condition codes. */
+#define FAULT(h)	rd %psr, %l0; sethi %hi(h), %l3; jmp %l3 + %lo(h); nop
 
 	.text
 	.globl	_start
@@ -24,14 +26,30 @@ trapbase:
 	 nop
 	nop
 	nop
+#ifdef MMU_TRAPS
+	FAULT(mmu_fault)		/* tt 0x01 */
+	.rept	3			/* tt 0x02-0x04 */
+	BAD
+	.endr
+#else
 	.rept	4			/* tt 0x01-0x04 */
 	BAD
 	.endr
+#endif
 	TRAP(window_overflow)		/* tt 0x05 */
 	TRAP(window_underflow)		/* tt 0x06 */
+#ifdef MMU_TRAPS
+	BAD				/* tt 0x07 */
+	BAD				/* tt 0x08 */
+	FAULT(mmu_fault)		/* tt 0x09 */
+	.rept	6			/* tt 0x0a-0x0f */
+	BAD
+	.endr
+#else
 	.rept	9			/* tt 0x07-0x0f */
 	BAD
 	.endr
+#endif
 	BAD				/* tt 0x10 */
 #ifdef IRQ_TRAPS
 	.rept	15			/* tt 0x11-0x1f: interrupt levels 1-15 */
@@ -42,9 +60,23 @@ trapbase:
 	BAD
 	.endr
 #endif
+#ifdef MMU_TRAPS
+	.rept	12			/* tt 0x20-0x2b */
+	BAD
+	.endr
+	FAULT(mmu_fault)		/* tt 0x2c: data MMU miss */
+	.rept	15			/* tt 0x2d-0x3b */
+	BAD
+	.endr
+	FAULT(mmu_fault)		/* tt 0x3c: instruction MMU miss */
+	.rept	195			/* tt 0x3d-0xff */
+	BAD
+	.endr
+#else
 	.rept	224			/* tt 0x20-0xff */
 	BAD
 	.endr
+#endif
 
 entry:
 	set	PSR_BOOT, %g1
