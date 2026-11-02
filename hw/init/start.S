@@ -29,6 +29,8 @@ name:					\
 	SYS(sys_getpid, 20)
 	SYS(sys_wait4, 449)
 	SYS(sys_mmap, 197)
+	SYS(sys_setrlimit, 195)
+	SYS(sys_execve, 59)
 
 /* The child of SYS_fork is told apart by %o1, not %o0. */
 	.globl	sys_fork

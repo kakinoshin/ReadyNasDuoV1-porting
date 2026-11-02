@@ -15,6 +15,7 @@
 /src/netbsd-obj/
 /src/netbsd-tools/
 /src/netbsd-tools.log
+/src/netbsd-dist.log
 
 # Probe build outputs
 /hw/probe/probe.elf

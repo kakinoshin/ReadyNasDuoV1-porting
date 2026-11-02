@@ -271,7 +271,11 @@ UART IRQs are 7 (UART1) and 8 (UART0); timers are 47-45. [confirmed]
   page or revoked write access. `PGT` with `FL` empties both TLBs. [confirmed]
 - A miss on an invalid PTE is not remembered: making the PTE valid is enough. [confirmed]
 - R, W and X apply to supervisor accesses too. A page without U is still reachable from
-  supervisor mode. User-mode access checks are not measured yet. [confirmed for supervisor]
+  supervisor mode. [confirmed]
+- User mode is refused the direct map, the register space and the kernel window, for
+  reads, writes and jumps, although the direct map bypasses the page tables.
+  [confirmed: `hw/init/init.c`] The direct map and registers fault as `0x09` with `DFSR`
+  `0x1001` read or `0x1201` write, and an unmapped user or window page as `0x2c`.
 
 | Fault | Trap | Status |
 |---|---|---|

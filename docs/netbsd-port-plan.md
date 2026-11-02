@@ -63,7 +63,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | M1 | A way to run the probe | **Done:** `padre_go.ko` starts `probe-boot.bin` on bare metal | Yes |
 | M2 | Minimal kernel | **Done:** threads switch, 100 Hz timer interrupts drive `kpause`, kernel reaches the root device prompt | Yes |
 | M3 | pmap | **Done:** user `pmap`, traps, system calls, `fork` and `flush` emulation run from a test `init` on a RAM disk | Yes |
-| M4 | Userland | `sh` runs from a RAM disk | Yes |
+| M4 | Userland | **Done:** `/rescue/sh` runs from a RAM disk, with pipes, subshells and signals, driven over serial | Yes |
 | M5 | PCI and USB | `pcic`, `uhci`, `ehci`, boot from USB storage | Yes |
 | M6 | Ethernet | Reverse engineer `padre_gmac`, NFS root | Yes |
 | M7 | SATA | Analyse LP and DJ, attach `wd` | Yes |
@@ -97,7 +97,9 @@ know `MACHINE=padre` yet.
    uncalibrated loop. Neither is accurate until a free-running counter is found.
 10. **Software `spl` is lightly tested.** So far only the timer interrupts; a device at a
     different IPL is the first real check of the mask tables.
-11. **User access checks are not measured.** Whether user mode is refused kernel addresses
-    is untested, including the direct map, which bypasses the page tables.
-12. **Slow traps.** Every trap from user mode moves all user windows through `pcb_rw`, and
+11. **Slow traps.** Every trap from user mode moves all user windows through `pcb_rw`, and
     each executable mapping invalidates the whole I-cache.
+12. **No FPU emulation.** `libc` and `/rescue` contain FPU instructions, which raise `SIGILL`
+    until `sys/arch/sparc/fpu` is wired up. The full userland was scanned: it has no V8
+    multiply or divide.
+13. **Dynamic binaries.** `machdep.cpu_arch` is not implemented yet, and it must return 7.
