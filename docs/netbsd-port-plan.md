@@ -40,6 +40,8 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
   Trap levels are fixed per line and cannot be programmed, so the IPL of a line comes from
   the table, not from the trap level. The `sparc` port's `ipl.h` and softint scheme, which
   rely on real PIL levels and the sun4m soft interrupt register, do not carry over.
+- **Kernel stacks must stay in the direct map.** The window handlers run with traps off, and
+  a TLB miss there resets the CPU. Addresses at `0xf8000000` and above can miss.
 - NAND access turns PCI off (`PCI_FEATURE_PCION`), and doing so under a running EHCI
   controller killed it on RAIDiator. A NetBSD NAND driver must quiesce PCI/USB first, or
   the port must leave NAND alone at run time.
@@ -59,7 +61,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 |---|---|---|---|
 | M0 | Toolchain | Cross compilers work | No |
 | M1 | A way to run the probe | **Done:** `padre_go.ko` starts `probe-boot.bin` on bare metal | Yes |
-| M2 | Minimal kernel | `locore`, UART console, timer, INTC; prints the copyright banner | Yes |
+| M2 | Minimal kernel | **Banner printed on the target.** Open: context switch, then timer and INTC under interrupts | Yes |
 | M3 | pmap | New `pmap`, `uvm` starts, `init` runs from a RAM disk | Yes |
 | M4 | Userland | `sh` runs from a RAM disk | Yes |
 | M5 | PCI and USB | `pcic`, `uhci`, `ehci`, boot from USB storage | Yes |
@@ -70,6 +72,9 @@ USB comes before Ethernet because the VIA controllers are standard: existing dri
 us storage without any custom IP analysis.
 
 ## Risks and open items
+
+`tools/build-kernel.sh` builds the kernel and `padre_go.ko` around it. `build.sh` does not
+know `MACHINE=padre` yet.
 
 1. **Boot path.** For development this is solved: `hw/kmod/padre_go.ko` enters an image from
    RAIDiator without touching flash, and GCC 16 builds the module, so the gcc 3.3 series is
@@ -82,4 +87,9 @@ us storage without any custom IP analysis.
 4. **A/D bits, the TLB walker and unexpected TLB traps.** These shape the pmap design and
    should be measured from a kernel module or bare metal before M3.
 5. **LP dependence.** If SATA cannot run without LP, the firmware must be part of the port.
-6. **No NAND writes.** They risk bricking the unit, and recovery options for iboot are limited.
+6. **Loading late after boot.** `padre_go.ko` overwrites `0x90000000` without asking Linux. The
+   one run 4 hours after boot left Linux wedged, and runs right after boot all worked. The
+   cause is not proven, so load it soon after boot.
+7. **Unexplained Linux panic.** One NULL dereference in an interrupt handler at boot, before
+   any module was loaded, after a run that ended in a power pull. It has not recurred.
+8. **No NAND writes.** They risk bricking the unit, and recovery options for iboot are limited.

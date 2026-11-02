@@ -262,7 +262,9 @@ UART IRQs are 7 (UART1) and 8 (UART0); timers are 47-45. [confirmed]
 - Page tables live in non-cached memory (`CONFIG_PADRE_RESERVE_DMA`). [confirmed]
 - Traps 0x3c/0x2c are MMU misses. Software only calls `do_sparc_fault`, so TLB refill
   appears to be a hardware walker. [inferred]
-- `sta` to `ASI 0x11` invalidates one page of TLB. [confirmed]
+- `sta` to `ASI 0x11` writes the stored value into the TLB entry for that page; zero
+  invalidates. [confirmed: on the target, a page in the `0xf8000000` window kept faulting
+  (`DFSR 0xb01`) after zero was stored, and worked once its PTE was stored instead]
 - Whether hardware updates the A/D bits is not known. [unknown]
 
 PTE bits: `U=9 R=8 W=7 X=6 C=5 T=4 A=3 D=2 Z=1 V=0`, PPN in `0xfffff000`. [confirmed]

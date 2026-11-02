@@ -60,7 +60,8 @@ init_module(void)
 	u32 size = image_end - image_start;
 	u32 psr, i;
 
-	printk("<6>padre_go: image %u bytes to %08x\n", size, IMAGE_BASE);
+	/* KERN_EMERG reaches the serial console, so each stage shows there. */
+	printk("<0>padre_go: image %u bytes to %08x\n", size, IMAGE_BASE);
 
 	psr = read_psr();
 	write_psr(psr | PSR_PIL);
@@ -70,10 +71,12 @@ init_module(void)
 	for (i = 0; i < size; i++) {
 		if (dst[i] != image_start[i]) {
 			write_psr(psr);
-			printk("<3>padre_go: verify failed at %u\n", i);
+			printk("<0>padre_go: verify failed at %u\n", i);
 			return -EIO;
 		}
 	}
+
+	printk("<0>padre_go: copy verified, entering\n");
 
 	/* The kernel's emulation cleans the D-cache line and drops the I-cache line. */
 	for (i = 0; i < size + CACHE_LINE; i += CACHE_LINE)
