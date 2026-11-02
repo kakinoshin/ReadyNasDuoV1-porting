@@ -18,7 +18,7 @@ mkdir -p "$obj"
 
 # nbmake-sparc with the target machine changed.
 sed 's/^MACHINE=sparc;/MACHINE=padre;/' "$tools/bin/nbmake-sparc" > "$obj/nbmake-padre"
-(cd "$obj" && MAKEOBJDIR= sh ./nbmake-padre -j4 netbsd)
+(cd "$obj" && MAKEOBJDIR= sh ./nbmake-padre -j4 dependall)
 
 "$tools/bin/sparc--netbsdelf-objdump" -d "$obj/netbsd" | sh "$top/hw/probe/check-v7.sh"
 "$tools/bin/sparc--netbsdelf-objcopy" -O binary "$obj/netbsd" "$obj/netbsd.bin"

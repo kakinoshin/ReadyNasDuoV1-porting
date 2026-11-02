@@ -61,7 +61,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 |---|---|---|---|
 | M0 | Toolchain | Cross compilers work | No |
 | M1 | A way to run the probe | **Done:** `padre_go.ko` starts `probe-boot.bin` on bare metal | Yes |
-| M2 | Minimal kernel | **Banner printed on the target.** Open: context switch, then timer and INTC under interrupts | Yes |
+| M2 | Minimal kernel | **Done:** threads switch, 100 Hz timer interrupts drive `kpause`, kernel reaches the root device prompt | Yes |
 | M3 | pmap | New `pmap`, `uvm` starts, `init` runs from a RAM disk | Yes |
 | M4 | Userland | `sh` runs from a RAM disk | Yes |
 | M5 | PCI and USB | `pcic`, `uhci`, `ehci`, boot from USB storage | Yes |
@@ -93,3 +93,7 @@ know `MACHINE=padre` yet.
 7. **Unexplained Linux panic.** One NULL dereference in an interrupt handler at boot, before
    any module was loaded, after a run that ended in a power pull. It has not recurred.
 8. **No NAND writes.** They risk bricking the unit, and recovery options for iboot are limited.
+9. **No timecounter.** The kernel still uses the MI dummy counter, and `delay()` is an
+   uncalibrated loop. Neither is accurate until a free-running counter is found.
+10. **Software `spl` is lightly tested.** So far only the timer interrupts; a device at a
+    different IPL is the first real check of the mask tables.
