@@ -102,6 +102,11 @@ at `0x00004444`. RAIDiator leaves this on the bus when it hands over:
 
 Bus mastering is off on all three, so no controller is doing DMA at hand-over.
 
+All three functions interrupt on line 27, and line 26 is held asserted with nothing to
+clear it: routing pin B to 26, as `pcibios_fixup_irqs()` does on some boards, gave a
+storm of about 130,000 interrupts a second. The timer counts down in `TM_CNTDIAG`
+(`0x6000004c`) at 50 kHz, from the tick period to zero. [confirmed]
+
 ### Bare-metal run
 
 `hw/kmod/padre_go.ko` copied `hw/probe/probe-boot.bin` to `0x90000000` and entered it with

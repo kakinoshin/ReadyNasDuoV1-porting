@@ -64,7 +64,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | M2 | Minimal kernel | **Done:** threads switch, 100 Hz timer interrupts drive `kpause`, kernel reaches the root device prompt | Yes |
 | M3 | pmap | **Done:** user `pmap`, traps, system calls, `fork` and `flush` emulation run from a test `init` on a RAM disk | Yes |
 | M4 | Userland | **Done:** `/rescue/sh` runs from a RAM disk, with pipes, subshells and signals, driven over serial | Yes |
-| M5 | PCI and USB | `pcic`, `uhci`, `ehci`, boot from USB storage | Yes |
+| M5 | PCI and USB | `pcic`, `uhci`, `ehci`, boot from USB storage. **Working:** USB 2.0 storage reads and writes FFS; root is still on the RAM disk | Yes |
 | M6 | Ethernet | Reverse engineer `padre_gmac`, NFS root | Yes |
 | M7 | SATA | Analyse LP and DJ, attach `wd` | Yes |
 
@@ -93,13 +93,13 @@ know `MACHINE=padre` yet.
 7. **Unexplained Linux panic.** One NULL dereference in an interrupt handler at boot, before
    any module was loaded, after a run that ended in a power pull. It has not recurred.
 8. **No NAND writes.** They risk bricking the unit, and recovery options for iboot are limited.
-9. **No timecounter.** The kernel still uses the MI dummy counter, and `delay()` is an
-   uncalibrated loop. Neither is accurate until a free-running counter is found.
+9. **No timecounter.** The kernel still uses the MI dummy counter. `delay()` counts timer 1
+   down in `TM_CNTDIAG`, which could also back a timecounter.
 10. **Software `spl` is lightly tested.** So far only the timer interrupts; a device at a
     different IPL is the first real check of the mask tables.
 11. **Slow traps.** Every trap from user mode moves all user windows through `pcb_rw`, and
     each executable mapping invalidates the whole I-cache.
-12. **No FPU emulation.** `libc` and `/rescue` contain FPU instructions, which raise `SIGILL`
-    until `sys/arch/sparc/fpu` is wired up. The full userland was scanned: it has no V8
-    multiply or divide.
+12. **FPU emulation is partial.** `libc` and `/rescue` contain FPU instructions; the kernel
+    emulates them with `sys/arch/sparc/fpu`, but signal contexts do not save FP state. The
+    full userland was scanned: it has no V8 multiply or divide.
 13. **Dynamic binaries.** `machdep.cpu_arch` is not implemented yet, and it must return 7.
