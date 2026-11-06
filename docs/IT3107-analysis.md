@@ -100,7 +100,14 @@ at `0x00004444`. RAIDiator leaves this on the bus when it hands over:
 | 23.1 | `1106:3038` | UHCI | I/O `0x1020` (BAR4) | I/O | B |
 | 23.2 | `1106:3104` | EHCI | memory `0x10010000` (BAR0) | memory | C |
 
-Bus mastering is off on all three, so no controller is doing DMA at hand-over.
+Bus mastering is off on all three, so no USB controller is doing DMA at hand-over.
+
+The GMAC is not on PCI, and **its RX DMA keeps running after `padre_go.ko` takes over.**
+LAN broadcast and multicast frames (ARP, IGMP) were found written at offsets `0x000` and
+`0x800` of pages NetBSD had reused, each frame after a 2-byte prefix, matching Linux's
+2 KiB RX buffers. Running `ifconfig eth0 down` and `rmmod padre_gmac` before the hand-over
+stops it. [confirmed: page dumps from the illegal instruction trap, then clean multi-user
+runs with the interface stopped]
 
 All three functions interrupt on line 27, and line 26 is held asserted with nothing to
 clear it: routing pin B to 26, as `pcibios_fixup_irqs()` does on some boards, gave a
@@ -313,6 +320,10 @@ PTE bits: `U=9 R=8 W=7 X=6 C=5 T=4 A=3 D=2 Z=1 V=0`, PPN in `0xfffff000`. [confi
 - 16-byte lines. [confirmed]
 - **DMA is not snooped.** Drivers maintain the caches explicitly, e.g. `flush_cache_dma`. [confirmed]
 - Physical memory above `MMU_CACHEABLE` is non-cached (top 16 MiB of RAM by default). [confirmed]
+- The PTE C bit is honoured. A read through a mapping without C returns memory, not a newer
+  value held in a dirty D-cache line of a cached alias. A write through it does not update
+  that line, and cleaning the line later overwrites the write.
+  [confirmed: `pmap_nocache_test` in the padre kernel]
 - IC3/DC3 let part of the cache act as tightly coupled memory. Linux places fast paths
   there, but the port does not need them early on.
 

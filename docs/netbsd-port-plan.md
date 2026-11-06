@@ -64,12 +64,29 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | M2 | Minimal kernel | **Done:** threads switch, 100 Hz timer interrupts drive `kpause`, kernel reaches the root device prompt | Yes |
 | M3 | pmap | **Done:** user `pmap`, traps, system calls, `fork` and `flush` emulation run from a test `init` on a RAM disk | Yes |
 | M4 | Userland | **Done:** `/rescue/sh` runs from a RAM disk, with pipes, subshells and signals, driven over serial | Yes |
-| M5 | PCI and USB | `pcic`, `uhci`, `ehci`, boot from USB storage. **Working:** USB 2.0 storage reads and writes FFS; root is still on the RAM disk | Yes |
+| M5 | PCI and USB | **Done:** `pcic`, `uhci`, `ehci`; root on USB storage, multi-user boot to `login:` with the full sparc userland | Yes |
 | M6 | Ethernet | Reverse engineer `padre_gmac`, NFS root | Yes |
 | M7 | SATA | Analyse LP and DJ, attach `wd` | Yes |
 
 USB comes before Ethernet because the VIA controllers are standard: existing drivers give
 us storage without any custom IP analysis.
+
+## Running from USB
+
+1. `tools/mkusbroot.sh FILE` builds the root image from the sparc distribution; write it to
+   a USB stick as the whole disk, with no label. The kernel mounts `sd0c`.
+2. `tools/build-kernel.sh PADRE_USB` builds the kernel and `hw/kmod/padre_go.ko`.
+   `PADRE_USB_SINGLE` boots single-user, because `padre_go.ko` passes no boot flags.
+3. On RAIDiator, after it has finished booting, copy the module over and run it detached
+   from the ssh session, since ssh goes through the interface being stopped:
+
+   ```sh
+   nohup sh -c "sleep 2; ifconfig eth0 down; rmmod padre_gmac; insmod /tmp/padre_go.ko" &
+   ```
+
+   **Stopping the GMAC first is required.** Otherwise it keeps receiving LAN frames into
+   Linux's buffers, which are NetBSD's memory by then (see risk 14).
+4. The console is UART0 at 9600 bps. A power cycle returns to RAIDiator.
 
 ## Risks and open items
 
@@ -102,4 +119,18 @@ know `MACHINE=padre` yet.
 12. **FPU emulation is partial.** `libc` and `/rescue` contain FPU instructions; the kernel
     emulates them with `sys/arch/sparc/fpu`, but signal contexts do not save FP state. The
     full userland was scanned: it has no V8 multiply or divide.
-13. **Dynamic binaries.** `machdep.cpu_arch` is not implemented yet, and it must return 7.
+13. **Dynamic binaries.** `machdep.cpu_arch` returns 7. `ld.elf_so` needed an `iflush` after
+    writing the PLT header, because the I-cache does not see stores and the sparc code had
+    no flush there.
+14. **DMA left running by RAIDiator.** The GMAC RX DMA keeps writing frames after the
+    hand-over. Before it was stopped from Linux, ARP and IGMP frames turned up at offsets
+    `0x000` and `0x800` of NetBSD pages, the layout of Linux's 2 KiB RX buffers. Symptoms
+    varied from run to run: illegal instructions in `libcrypto`, a misaligned mutex, a
+    corrupted inode block, and `sh` reading NULs from `/sbin/sysctl`. With the interface
+    stopped first, a full multi-user boot and two MD5 passes over the userland were clean.
+    The kernel should quiesce the GMAC itself, but its registers are undocumented, so this
+    waits for M6. SATA DMA during an X-RAID resync has not been ruled out the same way.
+15. **Kernel gaps seen at multi-user boot.** No `msgbuf` (`dmesg` fails) and no `rnd`
+    device nodes (`/dev/random`, `/dev/urandom`). The debug output added while chasing
+    risk 14 (deepest stack, the 30 s no-syscall watchdog, Ctrl-] dump, page dumps on
+    illegal instructions, the boot-time non-cached write test) is still in.
