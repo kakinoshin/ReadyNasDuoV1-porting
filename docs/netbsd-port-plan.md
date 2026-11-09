@@ -65,7 +65,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | M3 | pmap | **Done:** user `pmap`, traps, system calls, `fork` and `flush` emulation run from a test `init` on a RAM disk | Yes |
 | M4 | Userland | **Done:** `/rescue/sh` runs from a RAM disk, with pipes, subshells and signals, driven over serial | Yes |
 | M5 | PCI and USB | **Done:** `pcic`, `uhci`, `ehci`; root on USB storage, multi-user boot to `login:` with the full sparc userland | Yes |
-| M6 | Ethernet | Reverse engineer `padre_gmac`, NFS root | Yes |
+| M6 | Ethernet | Reverse engineer `padre_gmac`, NFS root. **Working:** `gm0` at 1000baseT, DHCP, TCP both ways; NFS root not tried | Yes |
 | M7 | SATA | Analyse LP and DJ, attach `wd` | Yes |
 
 USB comes before Ethernet because the VIA controllers are standard: existing drivers give
@@ -78,14 +78,15 @@ us storage without any custom IP analysis.
 2. `tools/build-kernel.sh PADRE_USB` builds the kernel and `hw/kmod/padre_go.ko`.
    `PADRE_USB_SINGLE` boots single-user, because `padre_go.ko` passes no boot flags.
 3. On RAIDiator, after it has finished booting, copy the module over and run it detached
-   from the ssh session, since ssh goes through the interface being stopped:
+   from the ssh session, since `insmod` never returns:
 
    ```sh
-   nohup sh -c "sleep 2; ifconfig eth0 down; rmmod padre_gmac; insmod /tmp/padre_go.ko" &
+   nohup sh -c "sleep 2; insmod /tmp/padre_go.ko" &
    ```
 
-   **Stopping the GMAC first is required.** Otherwise it keeps receiving LAN frames into
-   Linux's buffers, which are NetBSD's memory by then (see risk 14).
+   The kernel stops the GMAC that RAIDiator leaves receiving before it reuses any memory
+   (see risk 14). Kernels from before that need `ifconfig eth0 down; rmmod padre_gmac`
+   first.
 4. The console is UART0 at 9600 bps. A power cycle returns to RAIDiator.
 
 ## Risks and open items
@@ -128,9 +129,16 @@ know `MACHINE=padre` yet.
     varied from run to run: illegal instructions in `libcrypto`, a misaligned mutex, a
     corrupted inode block, and `sh` reading NULs from `/sbin/sysctl`. With the interface
     stopped first, a full multi-user boot and two MD5 passes over the userland were clean.
-    The kernel should quiesce the GMAC itself, but its registers are undocumented, so this
-    waits for M6. SATA DMA during an X-RAID resync has not been ruled out the same way.
+    `gmac_quiesce()` now does this at boot, as `padre_gmac`'s close does, and a multi-user
+    run with eth0 left up was clean. SATA DMA during an X-RAID resync has not been ruled
+    out the same way.
 15. **Kernel gaps seen at multi-user boot.** No `msgbuf` (`dmesg` fails) and no `rnd`
     device nodes (`/dev/random`, `/dev/urandom`). The debug output added while chasing
     risk 14 (deepest stack, the 30 s no-syscall watchdog, Ctrl-] dump, page dumps on
     illegal instructions, the boot-time non-cached write test) is still in.
+16. **GMAC gaps.** PHY writes are dropped until there is an I2C driver for the device at
+    `0x69` (see the GMAC notes in `IT3107-analysis.md`), so media cannot be changed and
+    a PHY reset is not possible. The multicast hash is not worked out, so the filter
+    takes all multicast. Every frame is copied in both directions, and there is no
+    checksum or segmentation offload. One `dhcpcd` run crashed in `send_message` with
+    a NULL interface state; the next run worked.

@@ -36,6 +36,7 @@ savecore=NO
 cron=NO
 postfix=NO
 sshd=NO
+dhcpcd=YES
 RC
 
 {
@@ -53,6 +54,7 @@ RC
 	node null char 2 2 wheel 0666
 	node zero char 2 12 wheel 0666
 	node drum char 3 0 kmem 0640
+	node bpf char 10 0 wheel 0600
 	i=0
 	for p in a b c d e f g h; do
 		node sd0$p block 2 $i operator 0640

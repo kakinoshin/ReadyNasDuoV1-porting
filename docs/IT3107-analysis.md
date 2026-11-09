@@ -107,7 +107,8 @@ LAN broadcast and multicast frames (ARP, IGMP) were found written at offsets `0x
 `0x800` of pages NetBSD had reused, each frame after a 2-byte prefix, matching Linux's
 2 KiB RX buffers. Running `ifconfig eth0 down` and `rmmod padre_gmac` before the hand-over
 stops it. [confirmed: page dumps from the illegal instruction trap, then clean multi-user
-runs with the interface stopped]
+runs with the interface stopped] The kernel now stops it itself at boot, see "GMAC"
+under "Drivers". [confirmed: a clean multi-user run with eth0 left up]
 
 All three functions interrupt on line 27, and line 26 is held asserted with nothing to
 clear it: routing pin B to 26, as `pcibios_fixup_irqs()` does on some boards, gave a
@@ -372,6 +373,39 @@ Binary only: `padre_io` (SATA/X-RAID), `padre_gmac`, `padre_i2c`, `padre_p0_led_
 
 Source available: `padre_serial.c`, `padre_nand_flash.c`, `padre_nor_flash.c`,
 `padre_i2c_rtc.c`, `pcic.c` (arch/padre).
+
+`tools/dwarf2c.py` turns the DWARF in `readelf --debug-dump=info` output back into C
+declarations. The layouts below come from it, the offsets from the code.
+
+### GMAC
+
+From `padre_gmac.ko`; definitions are in `sys/arch/padre/padre/gmacreg.h`, and `if_gm`
+runs on them. [confirmed: NetBSD pings, gets a DHCP lease and moves files over TCP both
+ways with matching MD5]
+
+- **The MAC is a PE-MCXMAC core**, the one in the Agere ET1310, reached indirectly:
+  `0x418` takes `register << 16 | read << 1 | go`, bit 2 reports done, and `0x41c`
+  holds the data. The ET1310 register names fit (`CFG1`, `CFG2`, `MAX_FRAME`,
+  `MII_MGMT_*`, `STATION1/2`). MDIO goes through the core's MII management registers.
+- The wrapper registers around it are at `0x400` (control: reset, RX/TX enable,
+  promiscuous, multicast filter), `0x404`/`0x408` (64-bit multicast hash), `0x414`
+  (VLAN tag), `0x420` (RX FIFO drain) and `0x428`.
+- **M4 at `0x60000700`** is the descriptor DMA engine for both GMACs: RX/TX control
+  and head, a flow-control credit count, and pending/mask/clear at `0xe0`. GMAC1's
+  registers are at `+0x40`, its interrupt registers at `+0x10`. Its interrupt is line
+  41 for GMAC0.
+- Descriptors are 16 bytes, linked by physical address: link, buffer, control (owner,
+  error, SOP, two interrupt selects, meta, EOP, direction, 24-bit size), status.
+  **GMAC0 descriptors must set `INTR0`**; with `INTR1` frames arrive but no interrupt.
+- **The engine only reads descriptors from S3 SRAM.** With rings in DDR it never
+  advanced; at `0x30001000`, where `padre_gmac` keeps them, it did. Buffers can be DDR.
+- RX frames start **2 bytes into the buffer**, and the length in the status word
+  includes the FCS.
+- The board PHY is a Marvell 88E1111 at address 0. Reads work, but **writes need the
+  I2C device at `0x69` changed first**: `padre_gmac` rewrites its register `0x0c` and
+  waits 20-80 ms around each write to a Marvell PHY. A plain write stored 0 in BMCR.
+  `if_gm` drops PHY writes for now and keeps the autonegotiation RAIDiator set up.
+- The MAC address is in iboot's `boot_param` at offset 8.
 
 ## Licensing notes
 
