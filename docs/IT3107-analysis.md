@@ -237,6 +237,10 @@ with a negative dividend, so those binaries probably just appear to work. [infer
 
 - Bug 505: dummy write to `0x66660000` after INTC mask writes. Active when
   `CONFIG_PADRE_TRAP10_BUG` is undefined, which is the default configuration. [confirmed]
+  Linux always does the mask write and the dummy write with interrupts off. NetBSD did
+  them with interrupts on at first, and under NFS load the timer line stopped being
+  taken until another interrupt rewrote the masks; with interrupts off it did not
+  recur. [inferred: one failing and one clean NFS boot]
 - Bug 893: enabled by default in Kconfig; no code use checked yet.
 - Bug 179: disabled by default.
 - `CONFIG_PADRE_UNEXPECT_TLBTRAP`: described as "chip can generate unexpected TLB trap".

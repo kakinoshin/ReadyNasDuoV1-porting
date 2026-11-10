@@ -65,7 +65,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | M3 | pmap | **Done:** user `pmap`, traps, system calls, `fork` and `flush` emulation run from a test `init` on a RAM disk | Yes |
 | M4 | Userland | **Done:** `/rescue/sh` runs from a RAM disk, with pipes, subshells and signals, driven over serial | Yes |
 | M5 | PCI and USB | **Done:** `pcic`, `uhci`, `ehci`; root on USB storage, multi-user boot to `login:` with the full sparc userland | Yes |
-| M6 | Ethernet | Reverse engineer `padre_gmac`, NFS root. **Working:** `gm0` at 1000baseT, DHCP, TCP both ways; NFS root not tried | Yes |
+| M6 | Ethernet | **Done:** `gm0` at 1000baseT, DHCP from userland, multi-user boot with an NFS root | Yes |
 | M7 | SATA | Analyse LP and DJ, attach `wd` | Yes |
 
 USB comes before Ethernet because the VIA controllers are standard: existing drivers give
@@ -88,6 +88,17 @@ us storage without any custom IP analysis.
    (see risk 14). Kernels from before that need `ifconfig eth0 down; rmmod padre_gmac`
    first.
 4. The console is UART0 at 9600 bps. A power cycle returns to RAIDiator.
+
+## Running from NFS
+
+1. `tools/mkusbroot.sh -n SERVER:PATH FILE.tgz` builds the same root as a tarball with
+   owners and device nodes, an NFS `fstab` and `dhcpcd` off.
+2. On the server, as root: extract it with `tar -xpzf FILE.tgz --numeric-owner -C PATH`,
+   so that files keep NetBSD's IDs, and export `PATH` to the NAS with `rw,no_root_squash`.
+   Mounts use TCP, since current servers no longer offer NFS over UDP.
+3. `tools/build-kernel.sh PADRE_NFS` builds a kernel with the client address, gateway and
+   `SERVER:PATH` fixed in `conf/PADRE_NFS`; change them there for another network. Load it
+   as in step 3 above.
 
 ## Risks and open items
 
@@ -141,4 +152,10 @@ know `MACHINE=padre` yet.
     a PHY reset is not possible. The multicast hash is not worked out, so the filter
     takes all multicast. Every frame is copied in both directions, and there is no
     checksum or segmentation offload. One `dhcpcd` run crashed in `send_message` with
-    a NULL interface state; the next run worked.
+    a NULL interface state; the next run worked. The kernel's own DHCP client
+    (`NFS_BOOT_DHCP`) got no answer, which is why `PADRE_NFS` is fully static.
+17. **INTC mask writes.** Under NFS load the timer line stopped being taken: the clock
+    froze for minutes and moved on only when a console interrupt rewrote the masks.
+    Writing the masks and the bug 505 word with interrupts off, as Linux does, made the
+    NFS boot run through. The earlier hangs under heavy USB reads may have the same cause;
+    they have not been retested.

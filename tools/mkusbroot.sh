@@ -1,12 +1,20 @@
 #!/bin/sh
-# Build a root file system image for the USB disk from the sparc distribution.
-# Usage: tools/mkusbroot.sh OUTPUT
+# Build a root file system for padre from the sparc distribution.
+# Usage: tools/mkusbroot.sh OUTPUT		FFS image for the USB disk
+#        tools/mkusbroot.sh -n SERVER:PATH OUTPUT	tar.gz for an NFS root
 #
-# The kernel mounts it as sd0c, the whole disk, with no label. Manual pages,
-# tests and headers are left out to keep the image small. Device nodes come
-# from majors.padre, not from the sparc MAKEDEV.
+# The kernel mounts the image as sd0c, the whole disk, with no label. The
+# tarball carries owners and device nodes, so it is extracted as root on the
+# server; the kernel configures the interface for an NFS root, so dhcpcd is
+# left off there. Manual pages, tests and headers are left out to keep the
+# root small. Device nodes come from majors.padre, not from the sparc MAKEDEV.
 set -e
 
+nfs=
+if [ "$1" = -n ]; then
+	nfs=$2
+	shift 2
+fi
 out=$1
 top=$(cd "$(dirname "$0")/.." && pwd)
 tools=$top/src/netbsd-tools
@@ -21,9 +29,13 @@ grep -vE '^\./(usr/share/man|usr/share/doc|usr/tests|usr/include|dev/)' \
 # A tree of hard links, so that the changed files do not touch the destdir.
 cp -al "$dest" "$work/root"
 rm -f "$work/root/etc/fstab" "$work/root/etc/ttys" "$work/root/etc/rc.conf"
-cat > "$work/root/etc/fstab" <<FSTAB
-/dev/sd0c	/	ffs	rw	1 1
-FSTAB
+if [ -n "$nfs" ]; then
+	echo "$nfs	/	nfs	rw	0 0" > "$work/root/etc/fstab"
+	dhcpcd=NO
+else
+	echo "/dev/sd0c	/	ffs	rw	1 1" > "$work/root/etc/fstab"
+	dhcpcd=YES
+fi
 cat > "$work/root/etc/ttys" <<TTYS
 console	"/usr/libexec/getty std.9600"	vt100	on secure
 TTYS
@@ -36,7 +48,7 @@ savecore=NO
 cron=NO
 postfix=NO
 sshd=NO
-dhcpcd=YES
+dhcpcd=$dhcpcd
 RC
 
 {
@@ -63,5 +75,10 @@ RC
 	done
 } >> "$work/spec"
 
-"$tools/bin/nbmakefs" -t ffs -B be -s 900m -N "$dest/etc" -F "$work/spec" \
-    "$out" "$work/root"
+if [ -n "$nfs" ]; then
+	(cd "$work/root" && "$tools/bin/nbpax" -dOw -z -N "$dest/etc" -M \
+	    < "$work/spec") > "$out"
+else
+	"$tools/bin/nbmakefs" -t ffs -B be -s 900m -N "$dest/etc" \
+	    -F "$work/spec" "$out" "$work/root"
+fi
