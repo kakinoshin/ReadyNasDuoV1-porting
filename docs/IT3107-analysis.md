@@ -172,7 +172,11 @@ blocked by PIL was not tested.
   index 1. The rear console is UART0 (`0x60000060`), confirmed by polled output from bare metal.
 - A burst of 6 command lines at 9600 baud stopped the console responding, while the system
   stayed up on the network. Reopening the port on the PC did not help. The cause is
-  unconfirmed; `tools/serial-iboot.py` now paces its bytes.
+  unconfirmed; `tools/serial-iboot.py` now paces its bytes. NetBSD saw the same once:
+  input sent during a PIO disk read, with interrupts held off, and the UART0 receive
+  interrupt never came again (its count stayed fixed) while the clock and network kept
+  running. The likely trigger is an overrun of the one-character receiver. A repeat with
+  three lines during a 50 MB read was clean, so it is not reproducible on demand.
 - **NAND and PCI exclude each other.** `padre_hwcontrol` clears `PCI_FEATURE_PCION` while
   NAND is selected. Reading `mtdblock0` killed the EHCI controller (`HC died`) and returned
   I/O errors. `/dev/mtd0` returned 0 bytes. No NAND read has succeeded from Linux, and
@@ -349,8 +353,9 @@ glibc is changed to always run `flush` when rewriting the PLT instead of relying
 - It drives SATA, DJ, MC DMA and S3 SRAM directly at physical addresses. [confirmed]
 - Drivers write a command bus address to `0x60001100 + 4*(ch+4)` and then hit `CH_TRIG`
   (`intr_to_lp` in `padre_io.ko`). [confirmed]
-- Whether SATA can run without LP, and whether Ethernet needs it, is not known.
-  `padre_gmac` has `padre_gmac_init_dj_channel`. [unknown]
+- SATA PIO works without LP, and so does Ethernet (see the SATA and GMAC notes).
+  Whether SATA DMA can run without it is not known; `padre_gmac` has
+  `padre_gmac_init_dj_channel`, which `if_gm` does without. [unknown]
 
 ## Boot and iboot
 
@@ -410,6 +415,34 @@ ways with matching MD5]
   waits 20-80 ms around each write to a Marvell PHY. A plain write stored 0 in BMCR.
   `if_gm` drops PHY writes for now and keeps the autonegotiation RAIDiator set up.
 - The MAC address is in iboot's `boot_param` at offset 8.
+
+### SATA
+
+From `padre_io.ko`; `sys/arch/padre/padre/padreide.c` runs the channels in PIO through
+`wdc`. [confirmed: both bays IDENTIFY as 2 TB drives with LBA48, the MBR and the last
+sectors read back, and repeated reads give the same checksums]
+
+- **Each channel has a direct task file** at `0x60007000 + n * 0x100`: ATA register `r`
+  is the low byte of the 32-bit word at `+4 * r`, and the alternate status is at
+  `+0x38`. Only 32-bit accesses are used.
+- **Device control writes are ignored**, so there is no software reset and no `nIEN`.
+  The driver polls.
+- **PIO data goes through `+0`, one 16-bit word per 32-bit access**, after polling
+  `+0x84`: bit 4 means a word can be read, bit 5 that one can be written. The low half
+  holds the bytes in disk order with byte 0 in bits 15:8, so a big-endian store puts
+  them in memory as they are on disk. As a number the word is byte-swapped from the ATA
+  value. `wdc` marks IDENTIFY, which wants the numbers, `ATA_DRIVE_NOSTREAM`, and the
+  driver swaps only then. Without the swap the model string came out pairwise swapped
+  and the capacity read as 66 GB.
+- `padre_io` also uses windows at `0x60000200 + n * 0x80` (command `(reg << 2) | 0x43`
+  to read or `| 0x41` to write at `+8`, done in bit 0 of `+4`, data at `+0xc`). On
+  this unit no command through them ever completed. [unknown why]
+- PIO reads run at about 6.7 MB/s.
+- DMA uses MC DMA channels 4 and 5 (SATA0/1), driven by the LP processor with the DJ
+  engine. It is not analysed yet. RAIDiator takes the disk interrupts on lines 32 and
+  33; NetBSD does not use them yet. [unknown]
+- At boot RAIDiator may start an X-RAID resync onto the second disk (it did when that
+  disk's first sector was blank). Loading NetBSD stops it partway.
 
 ## Licensing notes
 

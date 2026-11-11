@@ -71,6 +71,10 @@ RC
 	for p in a b c d e f g h; do
 		node sd0$p block 2 $i operator 0640
 		node rsd0$p char 6 $i operator 0640
+		for u in 0 1; do
+			node wd$u$p block 3 $((u * 8 + i)) operator 0640
+			node rwd$u$p char 11 $((u * 8 + i)) operator 0640
+		done
 		i=$((i + 1))
 	done
 } >> "$work/spec"
