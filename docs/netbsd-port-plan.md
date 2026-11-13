@@ -66,7 +66,7 @@ and `MRCOFFEE` are the precedent for a PCI-integrated SoC.
 | M4 | Userland | **Done:** `/rescue/sh` runs from a RAM disk, with pipes, subshells and signals, driven over serial | Yes |
 | M5 | PCI and USB | **Done:** `pcic`, `uhci`, `ehci`; root on USB storage, multi-user boot to `login:` with the full sparc userland | Yes |
 | M6 | Ethernet | **Done:** `gm0` at 1000baseT, DHCP from userland, multi-user boot with an NFS root | Yes |
-| M7 | SATA | Analyse LP and DJ, attach `wd`. **In progress:** `wd0`/`wd1` attach and read in PIO; DMA and interrupts remain | Yes |
+| M7 | SATA | Analyse LP and DJ, attach `wd`. **In progress:** `wd0`/`wd1` attach and read at Ultra-DMA mode 6 without LP; interrupts and writes remain | Yes |
 
 USB comes before Ethernet because the VIA controllers are standard: existing drivers give
 us storage without any custom IP analysis.
@@ -118,8 +118,11 @@ know `MACHINE=padre` yet.
    hardware. A minimal emulator may be worth building for M2 onward.
 4. **Unexpected TLB traps.** Linux has a workaround option for them. The walker and A/D bits
    are measured, see `IT3107-analysis.md`; these traps have not been seen yet.
-5. **LP dependence.** SATA PIO and Ethernet run without LP. If SATA DMA cannot, the
-   firmware must be part of the port.
+5. **LP is left running.** SATA PIO, SATA DMA and Ethernet run without LP, but it keeps
+   running the state RAIDiator left (often in the middle of an X-RAID resync), and how to
+   stop it is not known. `paide` turns the channels' interrupts off and switches DJ to
+   direct, so it should get no events. That needs confirming before anything is written
+   to the disks.
 6. **Loading late after boot.** `padre_go.ko` overwrites `0x90000000` without asking Linux. The
    one run 4 hours after boot left Linux wedged, and runs right after boot all worked. The
    cause is not proven, so load it soon after boot.
@@ -163,14 +166,20 @@ know `MACHINE=padre` yet.
     Writing the masks and the bug 505 word with interrupts off, as Linux does, made the
     NFS boot run through. The earlier hangs under heavy USB reads may have the same cause;
     they have not been retested.
-18. **SATA gaps.** `paide` polls in PIO only, at about 6.7 MB/s, holding the CPU for the
-    whole transfer. DMA (MC DMA channels 4 and 5, through LP and DJ) and the disk
-    interrupt lines are not done, and nothing has been written to the disks yet. There is
-    no software reset, since device control writes are ignored, so a hung drive needs a
-    power cycle. RAIDiator may be resyncing X-RAID when NetBSD is loaded (risk 14 also
-    applies to SATA DMA).
+18. **SATA gaps.** `paide` runs DMA at about 19.7 MB/s, but polls for completion and
+    copies through a bounce buffer, holding the CPU for the whole transfer. The disk
+    interrupt lines are not used, and nothing has been written to the disks yet. Resets
+    are a COMRESET followed by 3 s of SET FEATURES to settle the drive, found by trial:
+    without it the transfer mode probe failed at random. Attach takes about 6 s longer
+    for it. RAIDiator may be resyncing X-RAID when NetBSD is loaded; the COMRESET stops
+    the command in flight, but see risk 5 for LP. The attach still prints the DJ, MC and
+    link state, and `PADRE_NFS` sets `PADRE_VERBOSE` for the `wd` transfer modes; both
+    are bring-up aids.
 19. **Console input can stop.** Once, input sent during a PIO read stopped the UART0
     receive interrupt for good, as a burst did under Linux. The clock now checks for a
     character that waited two ticks with no receive interrupt and collects it from a soft
     interrupt, printing `pcons: receive interrupt lost` with the status the first time.
     That path has not been seen to run yet.
+20. **One NFS root failure.** One boot could not mount the root: every `nfs_boot`
+    send failed with `EADDRNOTAVAIL` (49), also on retry from the prompt. The next boots
+    were fine. Not explained.

@@ -353,9 +353,15 @@ glibc is changed to always run `flush` when rewriting the PLT instead of relying
 - It drives SATA, DJ, MC DMA and S3 SRAM directly at physical addresses. [confirmed]
 - Drivers write a command bus address to `0x60001100 + 4*(ch+4)` and then hit `CH_TRIG`
   (`intr_to_lp` in `padre_io.ko`). [confirmed]
-- SATA PIO works without LP, and so does Ethernet (see the SATA and GMAC notes).
-  Whether SATA DMA can run without it is not known; `padre_gmac` has
-  `padre_gmac_init_dj_channel`, which `if_gm` does without. [unknown]
+- For SATA it takes 32-byte descriptors: a link and the command type in the first word
+  (type 2 runs LBA28, type 3 LBA48), a buffer bus address, a length with flags (issue the
+  command, X-RAID), and the task file bytes. It sets the channel's DJ register, arms the
+  MC DMA channel and writes the task file. Its busy bits are at `0x60001008` (bit
+  ch + 4). [confirmed from the disassembly; the descriptor layout is also in
+  `padre_io`'s DWARF]
+- SATA PIO and DMA and Ethernet all run without LP: `paide` does what the firmware does
+  from the main CPU (see the SATA notes). LP is left running, since how to stop it is not
+  known (Linux starts it with `SYS_CTRL = 0x2 << 12`). [confirmed / unknown]
 
 ## Boot and iboot
 
@@ -418,9 +424,10 @@ ways with matching MD5]
 
 ### SATA
 
-From `padre_io.ko`; `sys/arch/padre/padre/padreide.c` runs the channels in PIO through
-`wdc`. [confirmed: both bays IDENTIFY as 2 TB drives with LBA48, the MBR and the last
-sectors read back, and repeated reads give the same checksums]
+From `padre_io.ko` and the LP firmware; `sys/arch/padre/padre/padreide.c` runs the
+channels through `wdc`, in PIO and in DMA. [confirmed: both bays IDENTIFY as 2 TB drives
+with LBA48, attach at Ultra-DMA mode 6, and the same 8 MB read in PIO and in DMA gives
+the same checksum]
 
 - **Each channel has a direct task file** at `0x60007000 + n * 0x100`: ATA register `r`
   is the low byte of the 32-bit word at `+4 * r`, and the alternate status is at
@@ -438,9 +445,35 @@ sectors read back, and repeated reads give the same checksums]
   to read or `| 0x41` to write at `+8`, done in bit 0 of `+4`, data at `+0xc`). On
   this unit no command through them ever completed. [unknown why]
 - PIO reads run at about 6.7 MB/s.
-- DMA uses MC DMA channels 4 and 5 (SATA0/1), driven by the LP processor with the DJ
-  engine. It is not analysed yet. RAIDiator takes the disk interrupts on lines 32 and
-  33; NetBSD does not use them yet. [unknown]
+- **Link registers**, as in `sata_init_chan`: SStatus at `+0x40` (`0x113` with a drive
+  up), SError at `+0x44`, SControl at `+0x48` (`0x11` sends COMRESET, `0x10` releases
+  it). `+0x80` and `+0x88` hold PHY setup; the reset writes `+0x88 = 0x80` and `+0x80 =
+  0x40000`, then `0x48000`. COMRESET is the only reset there is, and it also stops a
+  command RAIDiator left running.
+- **`+0x80` also carries the channel's interrupt bits.** `padre_set_sata_intr` turns
+  them on by setting `0x1dc00000` and off by setting `0x1c000000` and clearing
+  `0x01c00000`. Linux turns them off around commands it polls from the CPU. RAIDiator
+  leaves `0x05c48000` there. After the reset `paide` writes that value back with the
+  interrupts off. With `0x48000` left as the reset writes it, Ultra-DMA mode setting
+  failed. [confirmed on hardware]
+- **DMA goes through MC DMA channel n + 4** at `0x60002800 + (n + 4) * 0x10`: FIFO control
+  at `+0` (enable `0x8000`, active `0x4000`, low 15 bits a configuration Linux sets up),
+  bus address at `+8`, and the length at `+0xc` with `0x02000000` (end of packet) and
+  `0x01000000` (device to memory). The engine takes one contiguous buffer. Arm it, then
+  write the task file with READ/WRITE DMA (EXT); the transfer is done when the active
+  bit is clear and the drive is not busy. [confirmed on hardware]
+- **The DJ register for channel n is at `0x60005008 + n * 4`.** LP writes `0x90` (direct)
+  before any command outside X-RAID; RAIDiator leaves other values (`0x181`, `0x4`) when
+  a resync is running. `paide` writes `0x90` before each DMA command.
+- DMA reads run at about 19.7 MB/s on both drives, with the CPU polling and copying out of
+  a bounce buffer. RAIDiator takes the disk interrupts on lines 32 and 33; NetBSD does
+  not use them yet. [unknown]
+- **After a COMRESET the drives are slow for a while.** The first command can stay busy
+  for tens of ms, and SET FEATURES for the transfer mode then timed out (1 s each) on one
+  drive or the other, at random, leaving it at PIO mode 0 or without Ultra-DMA. Issued
+  later, the same command completed at once. Sending SET FEATURES every 50 ms for 3 s
+  after the reset made the probe pass on both drives in the two boots tried. Likely the
+  drive is still finishing what RAIDiator left it. [measured; cause unknown]
 - At boot RAIDiator may start an X-RAID resync onto the second disk (it did when that
   disk's first sector was blank). Loading NetBSD stops it partway.
 
